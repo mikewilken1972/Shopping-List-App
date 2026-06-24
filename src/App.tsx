@@ -56,7 +56,8 @@ import {
   doc, 
   orderBy,
   writeBatch,
-  setDoc
+  setDoc,
+  increment
 } from 'firebase/firestore';
 import { onAuthStateChanged, type User } from 'firebase/auth';
 
@@ -111,6 +112,7 @@ interface HistoryItem {
   comment?: string;
   userId: string;
   lastUsed: number;
+  purchaseCount?: number;
 }
 
 const CATEGORIES = [
@@ -832,7 +834,8 @@ function ShoppingListApp() {
         quantity: item.quantity || '',
         comment: item.comment || '',
         userId: user.uid,
-        lastUsed: Date.now()
+        lastUsed: Date.now(),
+        purchaseCount: increment(1)
       };
       if (item.price) historyItem.price = item.price;
       if (item.imageUrl) historyItem.imageUrl = item.imageUrl;
@@ -1529,6 +1532,14 @@ Return ONLY a JSON object with:
     return { activeItems: active, completedItems: completed };
   }, [filteredItems]);
 
+  const quickAddSuggestions = useMemo(() => {
+    const currentTexts = new Set(items.map(i => i.text.toLowerCase().trim()));
+    return historyItems
+      .filter(i => !currentTexts.has(i.text.toLowerCase().trim()))
+      .sort((a, b) => (b.purchaseCount || 0) - (a.purchaseCount || 0) || b.lastUsed - a.lastUsed)
+      .slice(0, 8); // Top 8 suggestions
+  }, [items, historyItems]);
+
   const stats = useMemo(() => {
     const total = items.length;
     const completed = items.filter(i => i.completed).length;
@@ -1804,6 +1815,14 @@ Return ONLY a JSON object with:
           <h1 className="text-2xl font-bold mb-2">{isSignUpMode ? 'Opret Bruger' : 'Velkommen'}</h1>
           <p className="text-gray-500 text-sm mb-6">Log ind for at gemme din indkøbsliste i skyen og se den på alle dine enheder.</p>
           
+          {window !== window.top && (
+            <div className="mb-6 p-4 bg-amber-50 border border-amber-200 rounded-xl text-amber-800 text-sm text-left">
+              <strong>Bemærk:</strong> Du bruger appen i en forhåndsvisning. 
+              Mange browsere (især Safari/iPhone) blokerer for login her. 
+              <strong> Åbn venligst appen i en ny fane</strong> (brug pil-ikonet øverst til højre) for at logge ind.
+            </div>
+          )}
+
           <form onSubmit={handleEmailAuth} className="space-y-4 mb-6 text-left">
             <div>
               <label className="block text-xs font-bold text-gray-700 uppercase tracking-wide mb-1">E-mail</label>
@@ -1854,6 +1873,10 @@ Return ONLY a JSON object with:
 
           <button 
             onClick={async () => {
+              if (window !== window.top) {
+                setLoginError('Google Login virker ikke i forhåndsvisningen. Åbn venligst appen i en ny fane (brug pilen øverst til højre).');
+                return;
+              }
               try {
                 setLoginError('');
                 await signInWithGoogle();
@@ -2207,6 +2230,25 @@ Return ONLY a JSON object with:
             </div>
           </form>
         </section>
+
+        {/* Quick Add Suggestions */}
+        {quickAddSuggestions.length > 0 && (
+          <div className="mb-8">
+            <h2 className="text-[10px] uppercase tracking-[0.2em] font-bold text-gray-400 mb-3 px-2">Hurtig tilføj</h2>
+            <div className="flex flex-wrap gap-2 px-2">
+              {quickAddSuggestions.map((suggestion) => (
+                <button
+                  key={`quick-add-${suggestion.id}`}
+                  onClick={() => addFromHistory(suggestion)}
+                  className="bg-white border border-gray-100 shadow-sm hover:shadow hover:border-blue-200 transition-all text-xs font-medium px-3 py-2 rounded-xl flex items-center gap-2 text-gray-700 active:scale-95"
+                >
+                  <Plus className="w-3.5 h-3.5 text-blue-500" />
+                  {suggestion.text}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
 
         {/* Controls & Filters */}
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
