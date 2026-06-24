@@ -36,6 +36,7 @@ import {
   Loader2,
   Mic,
   MicOff,
+  Camera,
   TicketPercent,
   ExternalLink,
   ChevronLeft
@@ -310,6 +311,8 @@ function ShoppingListApp() {
   const [emailStatus, setEmailStatus] = useState<'idle' | 'success' | 'error'>('idle');
   const [isListening, setIsListening] = useState(false);
   const recognitionRef = React.useRef<any>(null);
+  const [isAnalyzingImage, setIsAnalyzingImage] = useState(false);
+  const cameraInputRef = React.useRef<HTMLInputElement>(null);
 
   // Ensure selectedCategory is always valid
   useEffect(() => {
@@ -1098,6 +1101,104 @@ function ShoppingListApp() {
     recognition.start();
   };
 
+  const handleCameraCapture = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file || !process.env.GEMINI_API_KEY || !user || !activeListId) return;
+
+    setIsAnalyzingImage(true);
+    try {
+      const base64String = await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onloadend = () => {
+          const result = reader.result as string;
+          const base64Data = result.split(',')[1];
+          resolve(base64Data);
+        };
+        reader.onerror = reject;
+        reader.readAsDataURL(file);
+      });
+
+      const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+      const response = await ai.models.generateContent({
+        model: 'gemini-3.1-flash-preview',
+        contents: {
+          parts: [
+            {
+              inlineData: {
+                data: base64String,
+                mimeType: file.type
+              }
+            },
+            {
+              text: `Analyze this image and identify the main product. I want to add it to my shopping list.
+Return ONLY a JSON object with:
+"text": string (name of item),
+"quantity": string or null (e.g., "1 liter" if visible),
+"category": string (must be one of: ${userCategories.join(', ')}),
+"store": string (if identifiable brand or store logo is visible, otherwise empty string).`
+            }
+          ]
+        },
+        config: {
+          responseMimeType: "application/json"
+        }
+      });
+
+      const itemData = JSON.parse(response.text);
+      if (itemData && itemData.text) {
+        const itemRef = doc(collection(db, 'shoppingItems'));
+        
+        let imageUrl = null;
+        try {
+          imageUrl = await resizeImage(`data:${file.type};base64,${base64String}`);
+        } catch (imgError) {
+          console.warn('Could not resize image for saving:', imgError);
+        }
+
+        const newItem: ShoppingItem = {
+          id: itemRef.id,
+          text: itemData.text,
+          completed: false,
+          category: itemData.category || userCategories[0],
+          store: itemData.store || '',
+          onSale: false,
+          quantity: itemData.quantity || null,
+          createdAt: Date.now(),
+          userId: user.uid,
+          addedByName: user.displayName || user.email?.split('@')[0] || 'Anonym',
+          listId: activeListId,
+          imageUrl: imageUrl || undefined
+        };
+        
+        const batch = writeBatch(db);
+        batch.set(itemRef, newItem);
+
+        const historyId = `${itemData.text.toLowerCase().replace(/\s+/g, '_')}_${user.uid}`;
+        const historyRef = doc(db, 'itemHistory', historyId);
+        batch.set(historyRef, {
+          id: historyId,
+          text: itemData.text,
+          category: newItem.category,
+          store: newItem.store,
+          quantity: newItem.quantity,
+          userId: user.uid,
+          imageUrl: newItem.imageUrl || undefined,
+          lastUsed: Date.now()
+        }, { merge: true });
+
+        await batch.commit();
+      }
+    } catch (error) {
+      console.error("Error analyzing image:", error);
+      alert("Kunne ikke genkende varen på billedet.");
+    } finally {
+      setIsAnalyzingImage(false);
+      if (e.target) {
+        e.target.value = '';
+      }
+    }
+  };
+
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>, item: ShoppingItem) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -1838,7 +1939,7 @@ function ShoppingListApp() {
                 onChange={(e) => handleInputChange(e.target.value)}
                 onFocus={() => setShowSuggestions(true)}
                 placeholder="Hvad skal du købe?"
-                className="w-full pl-4 pr-12 py-3 bg-gray-50 border-none rounded-xl focus:ring-2 focus:ring-blue-500/20 transition-all placeholder:text-gray-400"
+                className="w-full pl-4 pr-[6.5rem] py-3 bg-gray-50 border-none rounded-xl focus:ring-2 focus:ring-blue-500/20 transition-all placeholder:text-gray-400"
               />
               <button 
                 type="submit"
@@ -1851,13 +1952,33 @@ function ShoppingListApp() {
               <button 
                 type="button"
                 onClick={toggleListening}
-                className={`absolute right-12 top-1/2 -translate-y-1/2 w-8 h-8 rounded-lg flex items-center justify-center transition-all ${
+                className={`absolute right-[2.75rem] top-1/2 -translate-y-1/2 w-8 h-8 rounded-lg flex items-center justify-center transition-all ${
                   isListening ? 'bg-red-500 text-white animate-pulse' : 'bg-gray-100 text-gray-400 hover:text-blue-600'
                 }`}
                 title="Tilføj med stemmen"
               >
                 {isListening ? <MicOff className="w-4 h-4" /> : <Mic className="w-4 h-4" />}
               </button>
+
+              <div className="absolute right-[5rem] top-1/2 -translate-y-1/2">
+                <input
+                  type="file"
+                  accept="image/*"
+                  capture="environment"
+                  className="hidden"
+                  ref={cameraInputRef}
+                  onChange={handleCameraCapture}
+                />
+                <button
+                  type="button"
+                  onClick={() => cameraInputRef.current?.click()}
+                  disabled={isAnalyzingImage}
+                  className="w-8 h-8 rounded-lg flex items-center justify-center transition-all bg-gray-100 text-gray-400 hover:text-blue-600 disabled:opacity-50"
+                  title="Tilføj med kamera"
+                >
+                  {isAnalyzingImage ? <Loader2 className="w-4 h-4 animate-spin" /> : <Camera className="w-4 h-4" />}
+                </button>
+              </div>
 
               {/* Suggestions Dropdown */}
               <AnimatePresence>
