@@ -30,6 +30,5 @@ jobs:
         username: ${{ secrets.FTP_USERNAME }}
         password: ${{ secrets.FTP_PASSWORD }}
         local-dir: ./dist/
-        # Mange webhoteller, inklusive Simply.com, bruger mappen public_html. 
-        # Tjek evt. via dit webhotel, hvad din rodmappe hedder, og ret her hvis nødvendigt.
-        server-dir: /public_html/
+        # Uploader til mappen 'shopping', som ligger i roden af webhotellet
+        server-dir: /shopping/
