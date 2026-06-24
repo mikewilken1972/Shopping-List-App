@@ -1,0 +1,84 @@
+{
+  "firestore": {
+    "lists": {
+      "schema": "ShoppingList",
+      "description": "Shared shopping lists"
+    },
+    "shoppingItems": {
+      "schema": "ShoppingItem",
+      "description": "Collection of shopping list items"
+    },
+    "itemHistory": {
+      "schema": "HistoryItem",
+      "description": "Unique items previously added by the user"
+    },
+    "userSettings": {
+      "schema": "UserSettings",
+      "description": "User-specific settings like custom categories and stores"
+    }
+  },
+  "entities": {
+    "UserSettings": {
+      "title": "User Settings",
+      "description": "User-specific configuration",
+      "type": "object",
+      "properties": {
+        "categories": { "type": "array", "items": { "type": "string" }, "description": "Custom categories" },
+        "stores": { "type": "array", "items": { "type": "string" }, "description": "Custom stores" },
+        "activeListId": { "type": "string", "description": "Currently active list ID" },
+        "email": { "type": "string", "description": "User's email for invitations" }
+      }
+    },
+    "ShoppingList": {
+      "title": "Shopping List",
+      "description": "A shared shopping list",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "Unique identifier" },
+        "name": { "type": "string", "description": "Name of the list" },
+        "ownerId": { "type": "string", "description": "UID of the owner" },
+        "members": { "type": "array", "items": { "type": "string" }, "description": "Array of member UIDs" },
+        "invitedEmails": { "type": "array", "items": { "type": "string" }, "description": "Array of invited emails" },
+        "createdAt": { "type": "integer", "description": "Creation timestamp" }
+      },
+      "required": ["id", "name", "ownerId", "members", "createdAt"]
+    },
+    "ShoppingItem": {
+      "title": "Shopping Item",
+      "description": "An item in the shopping list",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "Unique identifier" },
+        "text": { "type": "string", "description": "Name of the item" },
+        "completed": { "type": "boolean", "description": "Whether the item is checked off" },
+        "category": { "type": "string", "description": "Category (e.g., Mejeri)" },
+        "store": { "type": "string", "description": "Store name" },
+        "onSale": { "type": "boolean", "description": "Whether the item is on sale" },
+        "price": { "type": "number", "description": "Price of the item" },
+        "quantity": { "type": "string", "description": "Quantity of the item" },
+        "comment": { "type": "string", "description": "Additional comment or note" },
+        "createdAt": { "type": "integer", "description": "Timestamp of creation" },
+        "userId": { "type": "string", "description": "Creator's UID" },
+        "listId": { "type": "string", "description": "ID of the list this item belongs to" }
+      },
+      "required": ["id", "text", "completed", "category", "userId", "listId", "createdAt"]
+    },
+    "HistoryItem": {
+      "title": "History Item",
+      "description": "A unique item from the user's history",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "Unique identifier (usually name_userId)" },
+        "text": { "type": "string", "description": "Name of the item" },
+        "category": { "type": "string", "description": "Last used category" },
+        "store": { "type": "string", "description": "Last used store" },
+        "price": { "type": "number", "description": "Last used price" },
+        "quantity": { "type": "string", "description": "Last used quantity" },
+        "comment": { "type": "string", "description": "Last used comment" },
+        "userId": { "type": "string", "description": "Owner's UID" },
+        "lastUsed": { "type": "integer", "description": "Timestamp of last use" }
+      },
+      "required": ["id", "text", "category", "userId", "lastUsed"]
+    }
+  }
+}

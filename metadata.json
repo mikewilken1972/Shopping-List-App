@@ -1,0 +1,5 @@
+{
+  "name": "Smart Shopping List",
+  "description": "A clean and intuitive shopping list app to organize your groceries and household needs.",
+  "requestFramePermissions": ["microphone"]
+}
