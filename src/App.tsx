@@ -1853,7 +1853,15 @@ Return ONLY a JSON object with:
           </div>
 
           <button 
-            onClick={signInWithGoogle}
+            onClick={async () => {
+              try {
+                setLoginError('');
+                await signInWithGoogle();
+              } catch (error: any) {
+                console.error("Google login error:", error);
+                setLoginError('Kunne ikke starte Google login. Hvis du er i preview-tilstand, prøv at åbne appen i en ny fane (ikonet i øverste højre hjørne), eller brug e-mail login.');
+              }
+            }}
             type="button"
             className="w-full bg-white border-2 border-gray-100 text-gray-700 py-3 rounded-xl font-semibold flex items-center justify-center gap-2 hover:bg-gray-50 transition-colors mb-4"
           >
