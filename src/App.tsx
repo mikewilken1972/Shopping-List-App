@@ -399,6 +399,7 @@ function ShoppingListApp() {
   const [editPrice, setEditPrice] = useState('');
   const [editQuantity, setEditQuantity] = useState('');
   const [editComment, setEditComment] = useState('');
+  const [mobileViewTab, setMobileViewTab] = useState<'add' | 'list'>('list');
 
   // Auth listener
   useEffect(() => {
@@ -1873,16 +1874,18 @@ Return ONLY a JSON object with:
 
           <button 
             onClick={async () => {
-              if (window !== window.top) {
-                setLoginError('Google Login virker ikke i forhåndsvisningen. Åbn venligst appen i en ny fane (brug pilen øverst til højre).');
-                return;
-              }
               try {
                 setLoginError('');
                 await signInWithGoogle();
               } catch (error: any) {
                 console.error("Google login error:", error);
-                setLoginError('Kunne ikke starte Google login. Hvis du er i preview-tilstand, prøv at åbne appen i en ny fane (ikonet i øverste højre hjørne), eller brug e-mail login.');
+                if (error.code === 'auth/popup-blocked') {
+                  setLoginError('Din browser blokerede pop-up vinduet. Tillad pop-ups for denne side og prøv igen.');
+                } else if (error.code === 'auth/popup-closed-by-user') {
+                  setLoginError('Login blev afbrudt.');
+                } else {
+                  setLoginError('Kunne ikke logge ind med Google. Prøv at åbne appen i en ny fane, eller brug e-mail.');
+                }
               }
             }}
             type="button"
@@ -2061,8 +2064,29 @@ Return ONLY a JSON object with:
 
         {activeTab === 'list' ? (
           <>
-            {/* Input Section */}
-        <section className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6 mb-8">
+            {/* Mobile Tab Control */}
+            <div className="sm:hidden mb-6 flex bg-gray-200/50 p-1 rounded-2xl">
+              <button
+                onClick={() => setMobileViewTab('add')}
+                className={`flex-1 py-2.5 text-xs font-bold rounded-xl transition-all ${
+                  mobileViewTab === 'add' ? 'bg-white text-blue-600 shadow-sm' : 'text-gray-500'
+                }`}
+              >
+                Tilføj varer
+              </button>
+              <button
+                onClick={() => setMobileViewTab('list')}
+                className={`flex-1 py-2.5 text-xs font-bold rounded-xl transition-all ${
+                  mobileViewTab === 'list' ? 'bg-white text-blue-600 shadow-sm' : 'text-gray-500'
+                }`}
+              >
+                Indkøbsliste
+              </button>
+            </div>
+
+            <div className={`${mobileViewTab === 'add' ? 'block' : 'hidden'} sm:block`}>
+              {/* Input Section */}
+              <section className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6 mb-8">
           <form onSubmit={addItem} className="space-y-4">
             <div className="relative" onClick={(e) => e.stopPropagation()}>
               <input
@@ -2249,7 +2273,9 @@ Return ONLY a JSON object with:
             </div>
           </div>
         )}
+        </div>
 
+        <div className={`${mobileViewTab === 'list' ? 'block' : 'hidden'} sm:block`}>
         {/* Controls & Filters */}
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
           <div className="flex items-center gap-2 bg-white p-1 rounded-xl border border-gray-100 w-fit">
@@ -2398,6 +2424,7 @@ Return ONLY a JSON object with:
             </button>
           </motion.div>
         )}
+        </div>
       </>
     ) : activeTab === 'history' ? (
       <div className="space-y-6">
