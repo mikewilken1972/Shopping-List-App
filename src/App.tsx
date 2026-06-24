@@ -303,6 +303,7 @@ function ShoppingListApp() {
   const [isGeneratingImage, setIsGeneratingImage] = useState<string | null>(null);
   const [isUploadingImage, setIsUploadingImage] = useState<string | null>(null);
   const [previewImageUrl, setPreviewImageUrl] = useState<string | null>(null);
+  const [capturedImage, setCapturedImage] = useState<string | null>(null);
   const fileInputRef = React.useRef<HTMLInputElement>(null);
   const [memberProfiles, setMemberProfiles] = useState<Record<string, UserProfile>>({});
   const [editingListId, setEditingListId] = useState<string | null>(null);
@@ -720,6 +721,10 @@ function ShoppingListApp() {
         newItem.price = price;
       }
     }
+    
+    if (capturedImage) {
+      newItem.imageUrl = capturedImage;
+    }
 
     try {
       await addDoc(collection(db, 'shoppingItems'), newItem);
@@ -736,6 +741,7 @@ function ShoppingListApp() {
         lastUsed: Date.now()
       };
       if (newItem.price) historyItem.price = newItem.price;
+      if (capturedImage) historyItem.imageUrl = capturedImage;
       
       await setDoc(doc(db, 'itemHistory', historyId), historyItem, { merge: true });
 
@@ -745,6 +751,7 @@ function ShoppingListApp() {
       setInputComment('');
       setOnSale(false);
       setShowSuggestions(false);
+      setCapturedImage(null);
     } catch (error) {
       handleFirestoreError(error, OperationType.CREATE, 'shoppingItems');
     }
@@ -1114,7 +1121,7 @@ function ShoppingListApp() {
 
   const handleCameraCapture = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-    if (!file || !process.env.GEMINI_API_KEY || !user || !activeListId) return;
+    if (!file || !user || !activeListId) return;
 
     setIsAnalyzingImage(true);
     try {
@@ -1129,75 +1136,47 @@ function ShoppingListApp() {
         reader.readAsDataURL(file);
       });
 
-      const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
-      const response = await ai.models.generateContent({
-        model: 'gemini-3.1-flash-preview',
-        contents: {
-          parts: [
-            {
-              inlineData: {
-                data: base64String,
-                mimeType: file.type
-              }
-            },
-            {
-              text: `Analyze this image and identify the main product. I want to add it to my shopping list.
-Return ONLY a JSON object with:
-"text": string (name of item),
-"quantity": string or null (e.g., "1 liter" if visible),
-"category": string (must be one of: ${userCategories.join(', ')}),
-"store": string (if identifiable brand or store logo is visible, otherwise empty string).`
-            }
-          ]
-        },
-        config: {
-          responseMimeType: "application/json"
-        }
+      // Hent lidt historik så AI'en bedre kan lære brugerens kategorisering
+      const topHistory = historyItems.slice(0, 30).map(h => `${h.text} -> ${h.category}`).join('\n');
+
+      const response = await fetch('/api/analyze-image', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          imageBase64: base64String,
+          mimeType: file.type,
+          categories: userCategories,
+          historyContext: topHistory
+        })
       });
 
-      const itemData = JSON.parse(response.text);
+      if (!response.ok) {
+        throw new Error('Failed to analyze image');
+      }
+
+      const itemData = await response.json();
+
       if (itemData && itemData.text) {
-        const itemRef = doc(collection(db, 'shoppingItems'));
+        setInputValue(itemData.text);
+        if (itemData.category && userCategories.includes(itemData.category)) {
+          setSelectedCategory(itemData.category);
+        }
+        if (itemData.store) {
+          setSelectedStore(itemData.store);
+        }
+        if (itemData.quantity) {
+          setInputQuantity(itemData.quantity);
+        }
         
-        let imageUrl = null;
         try {
-          imageUrl = await resizeImage(`data:${file.type};base64,${base64String}`);
+          const imageUrl = await resizeImage(`data:${file.type};base64,${base64String}`);
+          setCapturedImage(imageUrl);
         } catch (imgError) {
           console.warn('Could not resize image for saving:', imgError);
         }
-
-        const newItem: ShoppingItem = {
-          id: itemRef.id,
-          text: itemData.text,
-          completed: false,
-          category: itemData.category || userCategories[0],
-          store: itemData.store || '',
-          onSale: false,
-          quantity: itemData.quantity || null,
-          createdAt: Date.now(),
-          userId: user.uid,
-          addedByName: user.displayName || user.email?.split('@')[0] || 'Anonym',
-          listId: activeListId,
-          imageUrl: imageUrl || undefined
-        };
         
-        const batch = writeBatch(db);
-        batch.set(itemRef, newItem);
-
-        const historyId = `${itemData.text.toLowerCase().replace(/\s+/g, '_')}_${user.uid}`;
-        const historyRef = doc(db, 'itemHistory', historyId);
-        batch.set(historyRef, {
-          id: historyId,
-          text: itemData.text,
-          category: newItem.category,
-          store: newItem.store,
-          quantity: newItem.quantity,
-          userId: user.uid,
-          imageUrl: newItem.imageUrl || undefined,
-          lastUsed: Date.now()
-        }, { merge: true });
-
-        await batch.commit();
+        setMobileViewTab('add');
+        window.scrollTo({ top: 0, behavior: 'smooth' });
       }
     } catch (error) {
       console.error("Error analyzing image:", error);
@@ -1883,8 +1862,10 @@ Return ONLY a JSON object with:
                   setLoginError('Din browser blokerede pop-up vinduet. Tillad pop-ups for denne side og prøv igen.');
                 } else if (error.code === 'auth/popup-closed-by-user') {
                   setLoginError('Login blev afbrudt.');
+                } else if (error.code === 'auth/unauthorized-domain') {
+                  setLoginError('Dette domæne er ikke godkendt i Firebase. Tilføj appens URL i Firebase Console -> Authentication -> Settings -> Authorized domains.');
                 } else {
-                  setLoginError('Kunne ikke logge ind med Google. Prøv at åbne appen i en ny fane, eller brug e-mail.');
+                  setLoginError(`Kunne ikke logge ind med Google (${error.code || 'ukendt fejl'}). Prøv at åbne appen i en ny fane, eller brug e-mail.`);
                 }
               }
             }}
@@ -2166,6 +2147,23 @@ Return ONLY a JSON object with:
                 )}
               </AnimatePresence>
             </div>
+            
+            {capturedImage && (
+              <div className="relative inline-block mt-4">
+                <img 
+                  src={capturedImage} 
+                  alt="Vare billede" 
+                  className="w-24 h-24 object-cover rounded-xl border border-gray-200"
+                />
+                <button
+                  type="button"
+                  onClick={() => setCapturedImage(null)}
+                  className="absolute -top-2 -right-2 bg-red-500 text-white rounded-full p-1 shadow-sm hover:bg-red-600 transition-colors"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+            )}
             
             <div className="flex flex-wrap gap-2">
               <div className="w-full text-[10px] uppercase tracking-[0.2em] font-black text-gray-300 mb-1 mt-4 px-1">Kategori</div>

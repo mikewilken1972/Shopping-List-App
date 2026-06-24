@@ -21,6 +21,55 @@ async function startServer() {
   app.use(cors());
 
   // API routes
+  app.post("/api/analyze-image", async (req, res) => {
+    const { imageBase64, mimeType, categories, historyContext } = req.body;
+
+    if (!process.env.GEMINI_API_KEY) {
+      return res.status(500).json({ error: "GEMINI_API_KEY is not configured" });
+    }
+
+    try {
+      const { GoogleGenAI } = await import("@google/genai");
+      const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+      const prompt = `Analyze this image and identify the main product. I want to add it to my shopping list.
+Return ONLY a JSON object with:
+"text": string (name of item, very concise, e.g. "Mælk", "Banan", "Opvaskemiddel"),
+"quantity": string or null (e.g., "1 liter", "500g" if visible, otherwise null),
+"category": string (must be one of the provided categories, try to match history context if provided),
+"store": string (if identifiable brand or store logo is visible, otherwise empty string).
+
+Available categories: ${categories?.join(', ') || ''}
+${historyContext ? `\nHere is some context of what the user has previously added and how they categorize items:\n${historyContext}\nLearn from this history to categorize similarly if applicable.` : ''}`;
+
+      const response = await ai.models.generateContent({
+        model: 'gemini-2.5-flash',
+        contents: {
+          parts: [
+            {
+              inlineData: {
+                data: imageBase64,
+                mimeType: mimeType || "image/jpeg"
+              }
+            },
+            {
+              text: prompt
+            }
+          ]
+        },
+        config: {
+          responseMimeType: "application/json",
+          temperature: 0.1
+        }
+      });
+
+      const resultText = response.text || "{}";
+      res.json(JSON.parse(resultText));
+    } catch (error) {
+      console.error("Error analyzing image:", error);
+      res.status(500).json({ error: "Failed to analyze image" });
+    }
+  });
+
   app.post("/api/send-email", async (req, res) => {
     const { to, subject, html } = req.body;
 
