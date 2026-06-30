@@ -39,7 +39,8 @@ import {
   Camera,
   TicketPercent,
   ExternalLink,
-  ChevronLeft
+  ChevronLeft,
+  ChevronDown
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { auth, db, signInWithGoogle, logout, signInWithEmailAndPassword, createUserWithEmailAndPassword } from './firebase';
@@ -92,6 +93,8 @@ interface ShoppingList {
   ownerId: string;
   members: string[];
   invitedEmails: string[];
+  categories?: string[];
+  stores?: string[];
   createdAt: number;
 }
 
@@ -309,6 +312,7 @@ function ShoppingListApp() {
   const [editingListId, setEditingListId] = useState<string | null>(null);
   const [editingListName, setEditingListName] = useState('');
   const [showEmailModal, setShowEmailModal] = useState(false);
+  const [showListMenu, setShowListMenu] = useState(false);
   const [emailToSend, setEmailToSend] = useState('');
   const [isSendingEmail, setIsSendingEmail] = useState(false);
   const [emailStatus, setEmailStatus] = useState<'idle' | 'success' | 'error'>('idle');
@@ -444,8 +448,6 @@ function ShoppingListApp() {
     const unsubscribe = onSnapshot(doc(db, 'userSettings', user.uid), async (snapshot) => {
       if (snapshot.exists()) {
         const data = snapshot.data() as UserSettings;
-        if (data.categories) setUserCategories(data.categories);
-        if (data.stores) setUserStores(data.stores);
         if (data.activeListId) {
           setActiveListId(data.activeListId);
         } else {
@@ -472,6 +474,8 @@ function ShoppingListApp() {
         ownerId: currentUser.uid,
         members: [currentUser.uid],
         invitedEmails: [],
+        categories: CATEGORIES,
+        stores: STORES,
         createdAt: Date.now()
       };
       await setDoc(listRef, newList);
@@ -515,7 +519,18 @@ function ShoppingListApp() {
 
     const unsubscribe = onSnapshot(doc(db, 'lists', activeListId), (snapshot) => {
       if (snapshot.exists()) {
-        setActiveList({ ...snapshot.data(), id: snapshot.id } as ShoppingList);
+        const listData = { ...snapshot.data(), id: snapshot.id } as ShoppingList;
+        setActiveList(listData);
+        if (listData.categories && listData.categories.length > 0) {
+          setUserCategories(listData.categories);
+        } else {
+          setUserCategories(CATEGORIES);
+        }
+        if (listData.stores && listData.stores.length > 0) {
+          setUserStores(listData.stores);
+        } else {
+          setUserStores(STORES);
+        }
       }
     });
 
@@ -757,14 +772,14 @@ function ShoppingListApp() {
     }
   };
 
-  const addFromHistory = async (historyItem: HistoryItem) => {
+  const addFromHistory = async (historyItem: HistoryItem, isQuickAdd: boolean = false) => {
     if (!user || !activeListId) return;
     
     const newItem: any = {
       text: historyItem.text,
       completed: false,
       category: historyItem.category,
-      store: historyItem.store,
+      store: isQuickAdd ? '' : historyItem.store,
       quantity: historyItem.quantity || null,
       comment: historyItem.comment || null,
       createdAt: Date.now(),
@@ -773,7 +788,7 @@ function ShoppingListApp() {
       listId: activeListId,
       onSale: false
     };
-    if (historyItem.price) newItem.price = historyItem.price;
+    if (historyItem.price && !isQuickAdd) newItem.price = historyItem.price;
 
     try {
       await addDoc(collection(db, 'shoppingItems'), newItem);
@@ -1138,6 +1153,17 @@ function ShoppingListApp() {
 
       // Hent lidt historik så AI'en bedre kan lære brugerens kategorisering
       const topHistory = historyItems.slice(0, 30).map(h => `${h.text} -> ${h.category}`).join('\n');
+      
+      const pastImages = historyItems
+        .filter(h => h.imageUrl)
+        .sort((a, b) => b.lastUsed - a.lastUsed)
+        .slice(0, 3)
+        .map(h => ({
+          imageUrl: h.imageUrl,
+          text: h.text,
+          category: h.category,
+          store: h.store || ''
+        }));
 
       const response = await fetch('/api/analyze-image', {
         method: 'POST',
@@ -1146,7 +1172,8 @@ function ShoppingListApp() {
           imageBase64: base64String,
           mimeType: file.type,
           categories: userCategories,
-          historyContext: topHistory
+          historyContext: topHistory,
+          pastImages
         })
       });
 
@@ -1224,44 +1251,44 @@ function ShoppingListApp() {
   };
 
   const addCategory = async () => {
-    if (!newCategory.trim() || !user) return;
+    if (!newCategory.trim() || !user || !activeListId) return;
     const updated = [...userCategories, newCategory.trim()];
     try {
-      await setDoc(doc(db, 'userSettings', user.uid), { categories: updated }, { merge: true });
+      await updateDoc(doc(db, 'lists', activeListId), { categories: updated });
       setNewCategory('');
     } catch (error) {
-      handleFirestoreError(error, OperationType.UPDATE, 'userSettings-categories');
+      handleFirestoreError(error, OperationType.UPDATE, 'list-categories');
     }
   };
 
   const removeCategory = async (cat: string) => {
-    if (!user) return;
+    if (!user || !activeListId) return;
     const updated = userCategories.filter(c => c !== cat);
     try {
-      await setDoc(doc(db, 'userSettings', user.uid), { categories: updated }, { merge: true });
+      await updateDoc(doc(db, 'lists', activeListId), { categories: updated });
     } catch (error) {
-      handleFirestoreError(error, OperationType.UPDATE, 'userSettings-categories-remove');
+      handleFirestoreError(error, OperationType.UPDATE, 'list-categories-remove');
     }
   };
 
   const addStore = async () => {
-    if (!newStore.trim() || !user) return;
+    if (!newStore.trim() || !user || !activeListId) return;
     const updated = [...userStores, newStore.trim()];
     try {
-      await setDoc(doc(db, 'userSettings', user.uid), { stores: updated }, { merge: true });
+      await updateDoc(doc(db, 'lists', activeListId), { stores: updated });
       setNewStore('');
     } catch (error) {
-      handleFirestoreError(error, OperationType.UPDATE, 'userSettings-stores');
+      handleFirestoreError(error, OperationType.UPDATE, 'list-stores');
     }
   };
 
   const removeStore = async (store: string) => {
-    if (!user) return;
+    if (!user || !activeListId) return;
     const updated = userStores.filter(s => s !== store);
     try {
-      await setDoc(doc(db, 'userSettings', user.uid), { stores: updated }, { merge: true });
+      await updateDoc(doc(db, 'lists', activeListId), { stores: updated });
     } catch (error) {
-      handleFirestoreError(error, OperationType.UPDATE, 'userSettings-stores-remove');
+      handleFirestoreError(error, OperationType.UPDATE, 'list-stores-remove');
     }
   };
 
@@ -1398,6 +1425,8 @@ function ShoppingListApp() {
         ownerId: user.uid,
         members: [user.uid],
         invitedEmails: [],
+        categories: CATEGORIES,
+        stores: STORES,
         createdAt: Date.now()
       };
       await setDoc(listRef, newList);
@@ -1905,10 +1934,16 @@ function ShoppingListApp() {
               <div className="w-14 h-14 bg-blue-600 rounded-[1.5rem] shadow-2xl shadow-blue-200 flex items-center justify-center transform -rotate-3 hover:rotate-0 transition-transform duration-500">
                 <ShoppingBag className="w-7 h-7 text-white" />
               </div>
-              <div>
-                <h1 className="text-3xl font-display font-black tracking-tight text-gray-900 leading-none mb-1">
-                  {activeList?.name || 'Smart Shopping'}
-                </h1>
+              <div className="relative z-50">
+                <button 
+                  onClick={() => setShowListMenu(!showListMenu)}
+                  className="flex items-center gap-2 text-left group"
+                >
+                  <h1 className="text-3xl font-display font-black tracking-tight text-gray-900 leading-none mb-1 group-hover:text-blue-600 transition-colors">
+                    {activeList?.name || 'Smart Shopping'}
+                  </h1>
+                  <ChevronDown className={`w-6 h-6 text-gray-400 group-hover:text-blue-500 transition-transform ${showListMenu ? 'rotate-180' : ''}`} />
+                </button>
                 <p className="text-[10px] uppercase tracking-[0.2em] font-black text-gray-300 flex items-center gap-2">
                   <Users className="w-3 h-3" />
                   {activeList?.members.length || 1} {activeList?.members.length === 1 ? 'medlem' : 'medlemmer'}
@@ -1919,6 +1954,56 @@ function ShoppingListApp() {
                     </span>
                   )}
                 </p>
+
+                <AnimatePresence>
+                  {showListMenu && (
+                    <>
+                      <div 
+                        className="fixed inset-0 z-40"
+                        onClick={() => setShowListMenu(false)}
+                      />
+                      <motion.div
+                        initial={{ opacity: 0, y: -10 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        exit={{ opacity: 0, y: -10 }}
+                        className="absolute top-full left-0 mt-4 w-64 bg-white rounded-[2rem] shadow-2xl border border-gray-100 z-50 overflow-hidden"
+                      >
+                        <div className="p-2 space-y-1">
+                          <div className="px-3 py-2 text-[10px] font-black uppercase tracking-widest text-gray-400">Dine lister</div>
+                          {userLists.map(list => (
+                            <button
+                              key={list.id}
+                              onClick={() => {
+                                switchList(list.id);
+                                setShowListMenu(false);
+                              }}
+                              className={`w-full text-left px-4 py-3 rounded-2xl flex items-center justify-between group transition-all ${
+                                activeListId === list.id
+                                  ? 'bg-blue-50 text-blue-900 font-bold'
+                                  : 'hover:bg-gray-50 text-gray-700 font-medium'
+                              }`}
+                            >
+                              <span className="truncate">{list.name}</span>
+                              {activeListId === list.id && <Check className="w-4 h-4 text-blue-500 shrink-0" />}
+                            </button>
+                          ))}
+                        </div>
+                        <div className="p-2 border-t border-gray-50">
+                          <button
+                            onClick={() => {
+                              createNewList();
+                              setShowListMenu(false);
+                            }}
+                            className="w-full text-left px-4 py-3 rounded-2xl flex items-center gap-2 text-blue-600 hover:bg-blue-50 transition-all font-bold"
+                          >
+                            <Plus className="w-4 h-4" />
+                            Opret ny liste
+                          </button>
+                        </div>
+                      </motion.div>
+                    </>
+                  )}
+                </AnimatePresence>
               </div>
             </div>
             
@@ -2261,7 +2346,7 @@ function ShoppingListApp() {
               {quickAddSuggestions.map((suggestion) => (
                 <button
                   key={`quick-add-${suggestion.id}`}
-                  onClick={() => addFromHistory(suggestion)}
+                  onClick={() => addFromHistory(suggestion, true)}
                   className="bg-white border border-gray-100 shadow-sm hover:shadow hover:border-blue-200 transition-all text-xs font-medium px-3 py-2 rounded-xl flex items-center gap-2 text-gray-700 active:scale-95"
                 >
                   <Plus className="w-3.5 h-3.5 text-blue-500" />
@@ -2461,7 +2546,7 @@ function ShoppingListApp() {
                     </div>
                   </div>
                   <button
-                    onClick={() => addFromHistory(item)}
+                    onClick={() => addFromHistory(item, true)}
                     className="flex items-center gap-2 px-5 py-2.5 bg-orange-500 text-white text-[11px] font-black uppercase tracking-widest rounded-2xl shadow-lg shadow-orange-200 hover:bg-orange-600 transition-all active:scale-95"
                   >
                     <Plus className="w-3.5 h-3.5" />
